@@ -181,8 +181,13 @@
             <div class="info-row"><strong>BIP:</strong> <span id="countryGdp"></span></div>
         </div>
 
+        <!-- NEU: Korrektur-Buttons auf der Auflösungsseite -->
         <div class="center" style="margin-top: 15px;">
             <button class="primary" onclick="nextQuestion()">Weiter</button>
+        </div>
+        <div class="center" style="margin-top: 10px;">
+            <button class="neutral" onclick="markDochGewusst()">Doch gewusst</button>
+            <button class="danger" onclick="markDochNichtGewusst()">Doch nicht gewusst</button>
             <button class="secondary" onclick="finishQuiz()">Beenden</button>
         </div>
     </div>
@@ -210,11 +215,9 @@
 <script>
     // ---------------------------------------------------------
     // LÄNDER PER API LADEN
-    // Wir verwenden die REST Countries API:
-    // https://restcountries.com/v3.1/all
     // ---------------------------------------------------------
 
-    let countries = [];      // hier landen alle Länder
+    let countries = [];      // alle Länder aus der API
     let quizOrder = [];      // zufällige Reihenfolge
     let currentIndex = 0;
 
@@ -225,6 +228,10 @@
         unsureCountries: [],
         unknownCountries: []
     };
+
+    // NEU: wir merken uns die letzte Antwort für Korrektur
+    let lastCountry = null;
+    let lastAnswerType = null; // "known" | "unsure" | "unknown"
 
     function shuffleArray(array) {
         const arr = array.slice();
@@ -263,7 +270,6 @@
             }
             const data = await response.json();
 
-            // Wir mappen die Rohdaten auf unsere Struktur
             countries = data
                 .filter(c => c.flags && (c.flags.png || c.flags.svg))
                 .map(c => {
@@ -272,8 +278,6 @@
                     const flagUrl = c.flags.png || c.flags.svg;
                     const population = c.population ? c.population.toLocaleString("de-DE") : "keine Angabe";
                     const area = c.area ? c.area.toLocaleString("de-DE") + " km²" : "keine Angabe";
-
-                    // BIP ist in dieser API nicht enthalten -> Platzhalter
                     const gdp = "keine Angabe (kann manuell ergänzt werden)";
 
                     return {
@@ -286,7 +290,6 @@
                     };
                 });
 
-            // sicherheitshalber nach Name sortieren (optional)
             countries.sort((a, b) => a.name.localeCompare(b.name, "de"));
 
             loadingInfo.textContent =
@@ -307,6 +310,8 @@
         stats.unknown = 0;
         stats.unsureCountries = [];
         stats.unknownCountries = [];
+        lastCountry = null;
+        lastAnswerType = null;
 
         showQuestion();
         showScreen("questionScreen");
@@ -323,6 +328,10 @@
 
     function answerQuestion(answerType) {
         const currentCountry = quizOrder[currentIndex];
+
+        // letzte Antwort merken (für spätere Korrektur)
+        lastCountry = currentCountry;
+        lastAnswerType = answerType;
 
         if (answerType === "known") {
             stats.known += 1;
@@ -350,7 +359,51 @@
         showScreen("detailScreen");
     }
 
+    // ---------------------------------------------------------
+    // NEU: Korrekturfunktionen "Doch gewusst" / "Doch nicht gewusst"
+    // ---------------------------------------------------------
+    function markDochGewusst() {
+        if (!lastCountry || !lastAnswerType) return;
+
+        // Wenn bereits als gewusst gewertet, nichts tun
+        if (lastAnswerType === "known") return;
+
+        if (lastAnswerType === "unsure") {
+            stats.unsure -= 1;
+            stats.unsureCountries = stats.unsureCountries.filter(c => c !== lastCountry);
+        } else if (lastAnswerType === "unknown") {
+            stats.unknown -= 1;
+            stats.unknownCountries = stats.unknownCountries.filter(c => c !== lastCountry);
+        }
+
+        stats.known += 1;
+        lastAnswerType = "known";
+    }
+
+    function markDochNichtGewusst() {
+        if (!lastCountry || !lastAnswerType) return;
+
+        // Wenn bereits als nicht gewusst gewertet, nichts tun
+        if (lastAnswerType === "unknown") return;
+
+        if (lastAnswerType === "unsure") {
+            stats.unsure -= 1;
+            stats.unsureCountries = stats.unsureCountries.filter(c => c !== lastCountry);
+        } else if (lastAnswerType === "known") {
+            stats.known -= 1;
+        }
+
+        stats.unknown += 1;
+        // sicherstellen, dass Land nur 1x in der Liste ist
+        if (!stats.unknownCountries.includes(lastCountry)) {
+            stats.unknownCountries.push(lastCountry);
+        }
+
+        lastAnswerType = "unknown";
+    }
+
     function nextQuestion() {
+        // Weiter zur nächsten Flagge, ohne an der letzten Antwort noch etwas zu ändern
         currentIndex += 1;
         if (currentIndex >= quizOrder.length) {
             finishQuiz();
